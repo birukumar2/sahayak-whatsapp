@@ -1,7 +1,8 @@
 """
 Sahayak - WhatsApp Fever Specialist Bot
-Conversational AI style - Hindi + English
+Conversational AI Style - Hindi + English
 Mediokart | Buxar, Bihar
+Version 2.0 - Bug Fixed
 """
  
 from flask import Flask, request
@@ -34,16 +35,29 @@ def reset_session(phone):
  
 # ─── Helpers ──────────────────────────────────────────────────
 def is_yes(text):
-    return any(w in text.lower() for w in ["yes","haan","ha","haa","ji","bilkul","yeah","yep","ho","han","y"])
+    t = text.lower().strip()
+    return t in ["yes","haan","ha","haa","ji","bilkul","yeah","yep","han","y","हाँ","हां","ho","ok","okay","theek hai","agree","sahi"]
  
 def is_no(text):
-    return any(w in text.lower() for w in ["no","nahi","nhi","nope","na","nah","n","nai"])
+    t = text.lower().strip()
+    return t in ["no","nahi","nhi","nope","na","nah","n","nai","नहीं","mat","refuse"]
+ 
+def is_restart(text):
+    t = text.lower().strip()
+    # Exact match only — avoid false triggers like "koi bhi nahi"
+    return t in ["restart","reset","start","start over","dobara","firse","phirse","menu","home","back","wapas","shuru"]
+ 
+def is_greeting(text):
+    t = text.lower().strip()
+    # Exact match only
+    return t in ["hi","hello","hey","helo","namaste","sahayak","namaskar","hii","helo","good morning","good evening","good afternoon","hy"]
  
 def extract_temp(text):
-    match = re.search(r'\b(\d{2,3}(?:\.\d)?)\b', text)
+    match = re.search(r'\b(\d{2,3}(?:\.\d{1,2})?)\b', text)
     if match:
         temp = float(match.group(1))
-        if temp < 45:  # Celsius
+        # Convert Celsius to Fahrenheit
+        if temp < 45:
             temp = round((temp * 9/5) + 32, 1)
         return temp
     return None
@@ -52,7 +66,7 @@ def temp_category(temp):
     if temp < 99:
         return "normal"
     elif temp < 100.4:
-        return "low"
+        return "low_grade"
     elif temp < 102:
         return "mild"
     elif temp < 104:
@@ -61,37 +75,40 @@ def temp_category(temp):
         return "high"
  
 # ─── Privacy Policy ───────────────────────────────────────────
-PRIVACY_HI = """📋 *Sahayak — Privacy Policy & Terms*
+PRIVACY_HI = """📋 *Sahayak — Privacy Policy & Terms of Service*
  
-*हमारी सेवा के बारे में:*
-Sahayak एक AI-powered health information service है जो Mediokart, Buxar, Bihar द्वारा संचालित है।
+*हमारी सेवा:*
+Sahayak एक AI-powered health information chatbot है।
+Operated by: *Mediokart, Buxar, Bihar* 🇮🇳
  
 *⚠️ महत्वपूर्ण Disclaimer:*
-• Sahayak केवल *सामान्य स्वास्थ्य जानकारी* प्रदान करता है
+• यह सेवा केवल *सामान्य स्वास्थ्य जानकारी* देती है
 • यह किसी *डॉक्टर का विकल्प नहीं* है
-• हमारी जानकारी WHO, MoHFW और Red Cross guidelines पर आधारित है
-• किसी भी गंभीर स्थिति में तुरंत डॉक्टर से मिलें
+• जानकारी WHO, MoHFW और Red Cross guidelines पर आधारित है
+• गंभीर स्थिति में तुरंत डॉक्टर से मिलें
  
 *🔒 आपकी Privacy:*
-• आपकी बातचीत सुरक्षित है
-• हम आपका डेटा किसी third party को नहीं देते
-• Session data temporarily store होता है
+• आपकी बातचीत सुरक्षित रहती है
+• आपका डेटा किसी third party को नहीं दिया जाता
+• Session data केवल अस्थायी रूप से store होता है
  
-*📞 Emergency:*
-किसी भी आपात स्थिति में 108 call करें — FREE है।
+*📞 Emergency हो तो:*
+तुरंत *108* call करें — Ambulance FREE है।
  
+━━━━━━━━━━━━━━━━━━
 क्या आप इन terms से सहमत हैं?
-*हाँ* लिखें आगे बढ़ने के लिए"""
+आगे बढ़ने के लिए *हाँ* लिखें।"""
  
-PRIVACY_EN = """📋 *Sahayak — Privacy Policy & Terms*
+PRIVACY_EN = """📋 *Sahayak — Privacy Policy & Terms of Service*
  
-*About our service:*
-Sahayak is an AI-powered health information service operated by Mediokart, Buxar, Bihar.
+*Our Service:*
+Sahayak is an AI-powered health information chatbot.
+Operated by: *Mediokart, Buxar, Bihar* 🇮🇳
  
 *⚠️ Important Disclaimer:*
-• Sahayak provides *general health information only*
+• This service provides *general health information only*
 • It is *NOT a substitute for a doctor*
-• Our information is based on WHO, MoHFW & Red Cross guidelines
+• Information is based on WHO, MoHFW & Red Cross guidelines
 • In any serious condition, consult a doctor immediately
  
 *🔒 Your Privacy:*
@@ -99,14 +116,15 @@ Sahayak is an AI-powered health information service operated by Mediokart, Buxar
 • We do not share your data with any third party
 • Session data is stored temporarily only
  
-*📞 Emergency:*
-In any emergency, call 108 — it's FREE.
+*📞 In case of Emergency:*
+Call *108* immediately — Ambulance is FREE.
  
+━━━━━━━━━━━━━━━━━━
 Do you agree to these terms?
-Type *Yes* to continue"""
+Type *Yes* to continue."""
  
-# ─── Fever Analysis Engine ────────────────────────────────────
-def analyze_and_advise(data, lang):
+# ─── Fever Advice Engine ──────────────────────────────────────
+def give_advice(data, lang):
     temp = data.get("temperature", 101)
     temp_unknown = data.get("temp_unknown", False)
     duration = data.get("duration", "")
@@ -116,62 +134,64 @@ def analyze_and_advise(data, lang):
  
     cat = temp_category(temp) if not temp_unknown else "mild"
     has_danger = len(danger_signs) > 0
-    has_comorbidity = condition.lower() not in ["none","koi nahi","no","nahi","kuch nahi",""]
+    has_comorbidity = condition.lower() not in [
+        "none","koi nahi","no","nahi","kuch nahi","",
+        "koi bhi nahi","koi nhi","nhi","koi nahin","nahin"
+    ]
  
-    # ── Possible Diagnosis ────────────────────────────────────
+    # Possible diagnosis
     possible = []
-    symp_str = " ".join(symptoms).lower()
- 
-    if "cough" in symp_str or "khansi" in symp_str or "throat" in symp_str or "gala" in symp_str:
-        possible.append("Viral fever / Flu" if lang == "english" else "वायरल बुखार / फ्लू")
-    if "rash" in symp_str or "daane" in symp_str or "chatte" in symp_str:
+    symp_str = " ".join([str(s) for s in symptoms]).lower()
+    if any(w in symp_str for w in ["cough","khansi","throat","gala","sore"]):
+        possible.append("Viral Fever / Flu" if lang == "english" else "वायरल बुखार / फ्लू")
+    if any(w in symp_str for w in ["rash","daane","chatte","laal"]):
         possible.append("Dengue / Measles" if lang == "english" else "डेंगू / खसरा")
-    if "loose motion" in symp_str or "dast" in symp_str or "diarrhea" in symp_str or "ulti" in symp_str or "vomit" in symp_str:
-        possible.append("Gastroenteritis / Typhoid" if lang == "english" else "गैस्ट्रोएंटेराइटिस / टाइफाइड")
-    if "body ache" in symp_str or "badan dard" in symp_str or "joint" in symp_str or "jodo" in symp_str:
-        possible.append("Chikungunya / Dengue / Flu" if lang == "english" else "चिकनगुनिया / डेंगू / फ्लू")
+    if any(w in symp_str for w in ["loose","dast","diarrhea","ulti","vomit","nausea"]):
+        possible.append("Typhoid / Gastroenteritis" if lang == "english" else "टाइफाइड / गैस्ट्रोएंटेराइटिस")
+    if any(w in symp_str for w in ["joint","jodo","body ache","badan","muscles","muscle"]):
+        possible.append("Chikungunya / Dengue" if lang == "english" else "चिकनगुनिया / डेंगू")
     if not possible:
-        possible.append("Viral fever" if lang == "english" else "वायरल बुखार")
+        possible.append("Viral Fever" if lang == "english" else "वायरल बुखार")
  
-    # ── Build Response ────────────────────────────────────────
+    # ── HINDI RESPONSE ────────────────────────────────────────
     if lang == "hindi":
  
-        # DANGER / HIGH FEVER
+        # DANGER or HIGH FEVER
         if has_danger or cat == "high":
-            resp = f"""🚨 *तुरंत डॉक्टर के पास जाएं!*
- 
-आपके लक्षण गंभीर हैं।
-"""
+            resp = "🚨 *तुरंत डॉक्टर के पास जाएं!*\n\n"
+            resp += "आपके लक्षण गंभीर हैं।\n"
             if danger_signs:
-                resp += "\n*खतरे के संकेत:*\n"
+                resp += "\n*⚠️ खतरे के संकेत मिले:*\n"
                 for d in danger_signs:
                     resp += f"• {d}\n"
- 
-            resp += f"""
+            resp += """
 *अभी करें:*
 1. 📞 *108 call करें* — Ambulance FREE है
 2. 🏥 नज़दीकी अस्पताल जाएं
-3. या FREE doctor से बात करें:
-   esanjeevani.mohfw.gov.in
+3. FREE doctor: esanjeevani.mohfw.gov.in
  
 📞 104 — Health Helpline (FREE)
  
-⚠️ _Source: WHO Emergency Guidelines, MoHFW_"""
+_⚠️ Source: WHO Emergency Guidelines, MoHFW_"""
             return resp
  
         # SUMMARY
+        temp_display = "पता नहीं" if temp_unknown else f"{temp}°F"
+        symp_display = ", ".join([str(s) for s in symptoms]) if symptoms else "कोई नहीं"
+ 
         resp = f"""📋 *आपकी जानकारी का सारांश:*
-• तापमान: {"पता नहीं" if temp_unknown else f"{temp}°F"}
+• तापमान: {temp_display}
 • बुखार कब से: {duration}
-• लक्षण: {", ".join(symptoms) if symptoms else "बताया नहीं"}
+• लक्षण: {symp_display}
 • संभावित कारण: {", ".join(possible)}
  
+━━━━━━━━━━━━━━━━━━
 """
-        # MODERATE FEVER
+        # MODERATE
         if cat == "moderate":
             resp += f"""⚠️ *यह बुखार ध्यान देने योग्य है।*
  
-{temp}°F बुखार थोड़ा ज़्यादा है।
+{temp}°F — थोड़ा ज़्यादा है।
 आमतौर पर 3-5 दिन में ठीक होता है।
  
 *अभी करें:*
@@ -183,15 +203,14 @@ def analyze_and_advise(data, lang):
  
 *डॉक्टर के पास कब जाएं:*
 • 2-3 दिन में बुखार कम न हो
-• नए लक्षण आएं (सांस की तकलीफ, rash, confusion)
+• नए लक्षण आएं
 • Temperature 104°F से ऊपर जाए
 """
- 
-        # MILD FEVER
-        elif cat in ["mild","low"]:
+        # MILD
+        elif cat in ["mild","low_grade"]:
             resp += f"""✅ *घबराएं नहीं — हल्का बुखार है।*
  
-{temp if not temp_unknown else "~101"}°F — यह सामान्य वायरल बुखार लग रहा है।
+{temp_display} — सामान्य वायरल बुखार लग रहा है।
 3-5 दिन में ठीक हो जाता है।
  
 *अभी करें:*
@@ -204,30 +223,38 @@ def analyze_and_advise(data, lang):
 • 2 दिन में ठीक न हो
 • Temperature बढ़े या नए लक्षण आएं
 """
+        # NORMAL
+        elif cat == "normal":
+            resp += f"""✅ *आपका temperature normal है।*
  
-        # COMORBIDITY WARNING
+{temp_display} — यह सामान्य है।
+लेकिन अगर तकलीफ हो तो डॉक्टर से मिलें।
+"""
+ 
+        # COMORBIDITY
         if has_comorbidity:
-            resp += f"\n⚠️ *आपको {condition} है — इसलिए डॉक्टर से जल्दी मिलें।*\n"
+            resp += f"\n⚠️ *आपको {condition} है — इसलिए जल्द डॉक्टर से मिलें।*\n"
  
-        # FEVER DO's AND DON'Ts
+        # DO'S AND DON'TS
         resp += """
----
+━━━━━━━━━━━━━━━━━━
 *🌡️ Fever में क्या करें — क्या न करें:*
  
 ✅ *करें:*
 • हर 4-6 घंटे में temperature check करें
 • ORS पियें — घर पर बनाएं:
   1L पानी + 6 tsp चीनी + ½ tsp नमक
-• हल्का खाना खाएं — खिचड़ी, दलिया
+• हल्का खाना — खिचड़ी, दलिया, सूप
 • पूरी नींद लें
+• गुनगुने पानी से स्नान कर सकते हैं
  
 ❌ *न करें:*
-• ठंडे पानी से नहाएं नहीं (गुनगुना ठीक है)
 • बर्फ सीधे शरीर पर न लगाएं
 • भूखे न रहें
 • बिना डॉक्टर के antibiotics न लें
+• ज़्यादा ठंडे पानी से न नहाएं
  
----
+━━━━━━━━━━━━━━━━━━
 📞 *Emergency Numbers:*
 • 108 — Ambulance (FREE)
 • 104 — Health Helpline (FREE)
@@ -237,46 +264,46 @@ _⚠️ यह जानकारी WHO, MoHFW और Indian Red Cross guidelin
  
 नया सवाल पूछने के लिए *restart* लिखें। 🙏"""
  
-    else:  # ENGLISH
+    # ── ENGLISH RESPONSE ──────────────────────────────────────
+    else:
  
-        # DANGER / HIGH FEVER
+        # DANGER or HIGH FEVER
         if has_danger or cat == "high":
-            resp = f"""🚨 *Go to a doctor IMMEDIATELY!*
- 
-Your symptoms are serious.
-"""
+            resp = "🚨 *Go to a doctor IMMEDIATELY!*\n\n"
+            resp += "Your symptoms are serious.\n"
             if danger_signs:
-                resp += "\n*Danger signs detected:*\n"
+                resp += "\n*⚠️ Warning signs detected:*\n"
                 for d in danger_signs:
                     resp += f"• {d}\n"
- 
-            resp += f"""
+            resp += """
 *Do this RIGHT NOW:*
 1. 📞 *Call 108* — Ambulance is FREE
 2. 🏥 Go to nearest hospital
-3. Or consult a FREE doctor at:
-   esanjeevani.mohfw.gov.in
+3. FREE doctor: esanjeevani.mohfw.gov.in
  
 📞 104 — Health Helpline (FREE)
  
-⚠️ _Source: WHO Emergency Guidelines, MoHFW_"""
+_⚠️ Source: WHO Emergency Guidelines, MoHFW_"""
             return resp
  
         # SUMMARY
-        resp = f"""📋 *Here's a summary of what you told me:*
-• Temperature: {"Unknown" if temp_unknown else f"{temp}°F"}
+        temp_display = "Unknown" if temp_unknown else f"{temp}°F"
+        symp_display = ", ".join([str(s) for s in symptoms]) if symptoms else "None mentioned"
+ 
+        resp = f"""📋 *Here's a summary:*
+• Temperature: {temp_display}
 • Fever since: {duration}
-• Symptoms: {", ".join(symptoms) if symptoms else "Not mentioned"}
+• Symptoms: {symp_display}
 • Most likely: {", ".join(possible)}
  
+━━━━━━━━━━━━━━━━━━
 """
- 
-        # MODERATE FEVER
+        # MODERATE
         if cat == "moderate":
             resp += f"""⚠️ *This fever needs attention.*
  
-{temp}°F is a notable fever.
-It usually resolves in 3-5 days.
+{temp}°F — that's a notable fever.
+Usually resolves in 3-5 days.
  
 *What to do now:*
 💧 Stay hydrated — water, ORS, coconut water
@@ -287,15 +314,14 @@ It usually resolves in 3-5 days.
  
 *See a doctor if:*
 • Fever doesn't improve in 2-3 days
-• New symptoms appear (breathlessness, rash, confusion)
+• New symptoms appear
 • Temperature crosses 104°F
 """
- 
-        # MILD FEVER
-        elif cat in ["mild","low"]:
+        # MILD
+        elif cat in ["mild","low_grade"]:
             resp += f"""✅ *Don't worry — it's a mild fever.*
  
-{temp if not temp_unknown else "~101"}°F — This looks like a normal viral fever.
+{temp_display} — looks like a normal viral fever.
 Usually resolves in 3-5 days.
  
 *What to do:*
@@ -308,36 +334,44 @@ Usually resolves in 3-5 days.
 • No improvement in 2 days
 • Temperature rises or new symptoms appear
 """
+        # NORMAL
+        elif cat == "normal":
+            resp += f"""✅ *Your temperature is normal.*
  
-        # COMORBIDITY WARNING
+{temp_display} — this is within normal range.
+But if you feel unwell, consult a doctor.
+"""
+ 
+        # COMORBIDITY
         if has_comorbidity:
             resp += f"\n⚠️ *You have {condition} — please consult a doctor sooner.*\n"
  
-        # FEVER DO's AND DON'Ts
+        # DO'S AND DON'TS
         resp += """
----
+━━━━━━━━━━━━━━━━━━
 *🌡️ Fever Do's & Don'ts:*
  
 ✅ *Do:*
 • Check temperature every 4-6 hours
 • Drink ORS — make at home:
   1L water + 6 tsp sugar + ½ tsp salt
-• Eat light food — khichdi, porridge
+• Eat light food — porridge, soup, khichdi
 • Get full sleep
+• Lukewarm bath is okay
  
 ❌ *Don't:*
-• Don't take cold baths (lukewarm is fine)
 • Don't apply ice directly on body
 • Don't skip meals
 • Don't take antibiotics without doctor's advice
+• Don't take very cold baths
  
----
+━━━━━━━━━━━━━━━━━━
 📞 *Emergency Numbers:*
 • 108 — Ambulance (FREE)
 • 104 — Health Helpline (FREE)
 • eSanjeevani: esanjeevani.mohfw.gov.in
  
-_⚠️ This information is based on WHO, MoHFW & Indian Red Cross guidelines. It is not a substitute for medical advice._
+_⚠️ This info is based on WHO, MoHFW & Indian Red Cross guidelines. Not a substitute for medical advice._
  
 Type *restart* to ask a new question. 🙏"""
  
@@ -351,40 +385,48 @@ def handle_message(phone, text):
     step = session["step"]
     lang = session["lang"]
  
-    # RESTART
-    if any(w in text_lower for w in ["restart","reset","start over","dobara","firse","phirse"]):
-        reset_session(phone)
-        step = "welcome"
-        session = get_session(phone)
- 
-    # ── WELCOME ───────────────────────────────────────────────
-    if step == "welcome" or any(w in text_lower for w in ["hi","hello","namaste","sahayak","hey","helo","start"]):
+    # ── RESTART — Exact match only ────────────────────────────
+    if is_restart(text_lower):
         reset_session(phone)
         session = get_session(phone)
         session["step"] = "lang_select"
-        return """👋 *Hi! I'm Sahayak, your health companion.*
-_By Mediokart | Buxar, Bihar_ 🇮🇳
+        return """👋 *Namaste! Main Sahayak hoon.*
+_Mediokart | Buxar, Bihar_ 🇮🇳
  
-I provide health information — *for fever only* right now.
+Main aapka health companion hoon.
+Abhi *sirf Fever* ke baare mein help kar sakta hoon.
  
-Please choose your language / भाषा चुनें:
+Bhasha chunein / Choose language:
+*1* → हिंदी
+*2* → English"""
+ 
+    # ── WELCOME / GREETING ────────────────────────────────────
+    if step == "welcome" or is_greeting(text_lower):
+        reset_session(phone)
+        session = get_session(phone)
+        session["step"] = "lang_select"
+        return """👋 *Namaste! Main Sahayak hoon.*
+_Mediokart | Buxar, Bihar_ 🇮🇳
+ 
+Main aapka health companion hoon.
+Abhi *sirf Fever* ke baare mein help kar sakta hoon.
+ 
+Bhasha chunein / Choose language:
 *1* → हिंदी
 *2* → English"""
  
     # ── LANGUAGE SELECT ───────────────────────────────────────
     elif step == "lang_select":
-        if text_lower in ["1","hindi","हिंदी","h"]:
+        if text_lower in ["1","hindi","हिंदी","हिन्दी","h"]:
             session["lang"] = "hindi"
-            lang = "hindi"
             session["step"] = "privacy"
             return PRIVACY_HI
-        elif text_lower in ["2","english","en","e"]:
+        elif text_lower in ["2","english","en","e","eng"]:
             session["lang"] = "english"
-            lang = "english"
             session["step"] = "privacy"
             return PRIVACY_EN
         else:
-            return """Please choose / चुनें:
+            return """Samajh nahi aaya. Please choose:
 *1* → हिंदी
 *2* → English"""
  
@@ -396,29 +438,38 @@ Please choose your language / भाषा चुनें:
             if lang == "hindi":
                 return """धन्यवाद! 🙏
  
-मैं आपकी बात समझने की कोशिश करूंगा।
+मैं आपकी बात ध्यान से सुनूंगा।
  
 *बुखार कब से है?*
-_(जैसे: आज सुबह से, 2 दिन से, कल से)_"""
+_(जैसे: आज सुबह से, कल शाम से, 2 दिन से)_"""
             else:
                 return """Thank you! 🙏
  
-I'll try to understand what's going on with you.
+I'm here to help you.
  
 *How long have you had this fever?*
-_(e.g., since this morning, 2 days, since yesterday)_"""
+_(e.g., since this morning, since yesterday evening, 2 days)_"""
         else:
-            return """आप बिना agree किए आगे नहीं बढ़ सकते।
-You cannot proceed without agreeing.
- 
-Type *हाँ / Yes* to continue."""
+            if lang == "hindi":
+                return "आगे बढ़ने के लिए *हाँ* लिखें।"
+            else:
+                return "Type *Yes* to continue."
  
     # ── HOW LONG ─────────────────────────────────────────────
     elif step == "how_long":
         session["data"]["duration"] = text_stripped
         session["step"] = "temperature"
+ 
+        # Duration warning
+        duration_warning = ""
+        if any(w in text_lower for w in ["3 din","4 din","5 din","teen din","3 day","4 day","5 day","week","hafte","ek hafte"]):
+            if lang == "hindi":
+                duration_warning = "⚠️ 3+ दिन से बुखार है — यह ज़रूर डॉक्टर से दिखाएं।\n\n"
+            else:
+                duration_warning = "⚠️ Fever for 3+ days — please see a doctor soon.\n\n"
+ 
         if lang == "hindi":
-            return f"""समझ गया — {text_stripped} से बुखार है।
+            return f"""{duration_warning}समझ गया। 👍
  
 *अभी temperature कितना है?*
  
@@ -427,18 +478,18 @@ _(जैसे: 101, 102.5, 103 — °F या °C दोनों ठीक ह
  
 Thermometer नहीं है? → *पता नहीं* लिखें"""
         else:
-            return f"""Got it — fever since {text_stripped}.
+            return f"""{duration_warning}Got it. 👍
  
 *What is your temperature right now?*
  
-Check with a thermometer and let me know.
-_(e.g., 101, 102.5, 103 — °F or °C both are fine)_
+Check with a thermometer.
+_(e.g., 101, 102.5, 103 — °F or °C both fine)_
  
 No thermometer? → type *don't know*"""
  
     # ── TEMPERATURE ───────────────────────────────────────────
     elif step == "temperature":
-        if any(w in text_lower for w in ["pata nahi","don't know","dont know","nahi pata","nahi","unknown","patta nahi"]):
+        if any(w in text_lower for w in ["pata nahi","don't know","dont know","nahi pata","unknown","pta nhi","pta nahi"]):
             session["data"]["temperature"] = 101
             session["data"]["temp_unknown"] = True
         else:
@@ -448,51 +499,58 @@ No thermometer? → type *don't know*"""
                 session["data"]["temp_unknown"] = False
             else:
                 if lang == "hindi":
-                    return "Temperature समझ नहीं आया। सिर्फ number लिखें जैसे *102* या *103.5*"
+                    return "Temperature समझ नहीं आया। सिर्फ number लिखें जैसे *102* या *38.5*"
                 else:
-                    return "Couldn't understand the temperature. Please type just the number like *102* or *103.5*"
+                    return "Couldn't understand. Please type just the number like *102* or *38.5*"
  
         session["step"] = "other_symptoms"
         temp_val = session["data"]["temperature"]
         cat = temp_category(temp_val)
+        temp_unknown = session["data"].get("temp_unknown", False)
  
         if lang == "hindi":
-            resp = ""
-            if cat == "high":
-                resp = f"⚠️ *{temp_val}°F — यह बहुत ज़्यादा है!*\n\n"
-            elif cat == "moderate":
-                resp = f"ठीक है, {temp_val}°F — थोड़ा ज़्यादा है।\n\n"
-            elif cat in ["mild","low"]:
-                resp = f"ठीक है, {temp_val}°F — हल्का बुखार है।\n\n"
+            comment = ""
+            if not temp_unknown:
+                if cat == "high":
+                    comment = f"⚠️ *{temp_val}°F — यह बहुत ज़्यादा है! ध्यान दें।*\n\n"
+                elif cat == "moderate":
+                    comment = f"ठीक है, *{temp_val}°F* — थोड़ा ज़्यादा है।\n\n"
+                elif cat in ["mild","low_grade"]:
+                    comment = f"ठीक है, *{temp_val}°F* — हल्का बुखार है।\n\n"
+                elif cat == "normal":
+                    comment = f"*{temp_val}°F* — यह सामान्य range में है।\n\n"
  
-            resp += """बुखार के साथ *और क्या लक्षण हैं?*
+            return f"""{comment}बुखार के साथ *और क्या लक्षण हैं?*
  
 जो भी हो वो लिखें:
 • बदन दर्द (body ache)
 • सिरदर्द (headache)
 • ठंड लगना (chills)
-• उल्टी (vomiting)
+• उल्टी / मतली (vomiting/nausea)
 • दस्त (loose motion)
 • खांसी (cough)
 • गले में दर्द (sore throat)
-• भूख न लगना
-• कमज़ोरी / थकान
-• आंखों में दर्द
+• भूख न लगना (no appetite)
+• कमज़ोरी / थकान (weakness)
+• आंखों में दर्द (eye pain)
 • शरीर पर दाने (rash)
 • कोई नहीं
  
 _(एक या ज़्यादा लिख सकते हैं)_"""
-            return resp
-        else:
-            resp = ""
-            if cat == "high":
-                resp = f"⚠️ *{temp_val}°F — That's quite high!*\n\n"
-            elif cat == "moderate":
-                resp = f"Okay, {temp_val}°F — that's a notable fever.\n\n"
-            elif cat in ["mild","low"]:
-                resp = f"Okay, {temp_val}°F — that's a mild fever.\n\n"
  
-            resp += """*Besides the fever, what other symptoms are you experiencing?*
+        else:
+            comment = ""
+            if not temp_unknown:
+                if cat == "high":
+                    comment = f"⚠️ *{temp_val}°F — That's quite high! Please pay attention.*\n\n"
+                elif cat == "moderate":
+                    comment = f"Okay, *{temp_val}°F* — that's a notable fever.\n\n"
+                elif cat in ["mild","low_grade"]:
+                    comment = f"Okay, *{temp_val}°F* — mild fever.\n\n"
+                elif cat == "normal":
+                    comment = f"*{temp_val}°F* — that's within normal range.\n\n"
+ 
+            return f"""{comment}*What other symptoms are you experiencing?*
  
 Mention all that apply:
 • Body aches
@@ -508,48 +566,47 @@ Mention all that apply:
 • Skin rash / Spots
 • None
  
-_(You can mention one or more)_"""
-            return resp
+_(Mention one or more)_"""
  
     # ── OTHER SYMPTOMS ────────────────────────────────────────
     elif step == "other_symptoms":
-        symptoms_raw = text_stripped
-        symptoms_list = [s.strip() for s in re.split(r'[,،\n•\-]', symptoms_raw) if s.strip()]
+        raw = text_stripped
+        symptoms_list = [s.strip() for s in re.split(r'[,،\n•\-/]', raw) if s.strip() and len(s.strip()) > 1]
         session["data"]["symptoms"] = symptoms_list
         session["step"] = "danger_signs"
  
         if lang == "hindi":
             return """समझ गया। 👍
  
-अब एक ज़रूरी सवाल —
+अब एक बहुत ज़रूरी सवाल —
  
 *क्या इनमें से कुछ हो रहा है?*
  
 🚨 *1* → सांस लेने में तकलीफ
 🚨 *2* → बहुत तेज़ सिरदर्द (असहनीय)
-🚨 *3* → बेहोशी / Confusion / चक्कर
+🚨 *3* → बेहोशी / Confusion / बहुत ज़्यादा चक्कर
 🚨 *4* → शरीर पर लाल चकत्ते / rash
 🚨 *5* → गर्दन में अकड़न
-🚨 *6* → बहुत कमज़ोरी — उठ नहीं पा रहे
+🚨 *6* → इतनी कमज़ोरी कि उठ नहीं पा रहे
 ✅ *0* → इनमें से कुछ नहीं
  
-_(जो हो उसका नंबर लिखें, जैसे: 1,3)_"""
+_(नंबर लिखें, जैसे: 0 या 1,3)_"""
         else:
             return """Got it. 👍
  
-Now one important question —
+Now one very important question —
  
 *Are you experiencing any of these warning signs?*
  
 🚨 *1* → Difficulty breathing
 🚨 *2* → Severe unbearable headache
-🚨 *3* → Confusion / Fainting / Dizziness
+🚨 *3* → Confusion / Fainting / Extreme dizziness
 🚨 *4* → Skin rash or red spots
 🚨 *5* → Stiff neck
 🚨 *6* → Extreme weakness — can't get up
 ✅ *0* → None of the above
  
-_(Type the number, e.g., 1,3 or 0)_"""
+_(Type the number, e.g., 0 or 1,3)_"""
  
     # ── DANGER SIGNS ─────────────────────────────────────────
     elif step == "danger_signs":
@@ -563,9 +620,10 @@ _(Type the number, e.g., 1,3 or 0)_"""
         }
  
         danger_signs = []
-        if "0" not in text_lower and not is_no(text_lower):
+        # Only check if NOT "0" or "none"
+        if text_stripped != "0" and not is_no(text_lower) and "kuch nahi" not in text_lower and "none" not in text_lower:
             for k, v in danger_map.items():
-                if k in text:
+                if k in text_stripped:
                     danger_signs.append(v[0] if lang == "hindi" else v[1])
  
         session["data"]["danger_signs"] = danger_signs
@@ -579,10 +637,10 @@ _(Type the number, e.g., 1,3 or 0)_"""
 • मधुमेह (Diabetes)
 • BP (High/Low)
 • दिल की बीमारी
-• अस्थमा
+• अस्थमा / सांस की बीमारी
 • कोई नहीं
  
-_(जो हो वो लिखें)_"""
+_(जो हो वो लिखें, जैसे: diabetes — या लिखें: कोई नहीं)_"""
         else:
             return """One last question —
  
@@ -591,22 +649,22 @@ _(जो हो वो लिखें)_"""
 • Diabetes
 • High/Low BP
 • Heart disease
-• Asthma
+• Asthma / breathing problems
 • None
  
-_(Type whatever applies)_"""
+_(Type whatever applies, e.g., diabetes — or type: none)_"""
  
-    # ── EXISTING CONDITION → FINAL ADVICE ────────────────────
+    # ── CONDITION → FINAL ADVICE ──────────────────────────────
     elif step == "condition":
         session["data"]["condition"] = text_stripped
         session["step"] = "done"
  
         if lang == "hindi":
-            loading = "🔍 आपके लक्षणों का विश्लेषण हो रहा है...\n\n"
+            loading = "🔍 *आपके लक्षणों का विश्लेषण हो रहा है...*\n\n"
         else:
-            loading = "🔍 Analyzing your symptoms...\n\n"
+            loading = "🔍 *Analyzing your symptoms...*\n\n"
  
-        advice = analyze_and_advise(session["data"], lang)
+        advice = give_advice(session["data"], lang)
         return loading + advice
  
     # ── DONE ─────────────────────────────────────────────────
@@ -614,40 +672,46 @@ _(Type whatever applies)_"""
         if lang == "hindi":
             return """नया सवाल पूछने के लिए *restart* लिखें। 🙏
  
-Emergency में:
-📞 108 — Ambulance (FREE)
-📞 104 — Health Helpline (FREE)"""
+📞 Emergency:
+• 108 — Ambulance (FREE)
+• 104 — Health Helpline (FREE)"""
         else:
-            return """Type *restart* to start over. 🙏
+            return """Type *restart* to start a new conversation. 🙏
  
-In emergency:
-📞 108 — Ambulance (FREE)
-📞 104 — Health Helpline (FREE)"""
+📞 Emergency:
+• 108 — Ambulance (FREE)
+• 104 — Health Helpline (FREE)"""
  
+    # ── FALLBACK ─────────────────────────────────────────────
     else:
         reset_session(phone)
-        return "Kuch galat hua. *restart* likhein / Type *restart* 🙏"
+        if lang == "hindi":
+            return "Kuch galat hua. *restart* likhein. 🙏"
+        else:
+            return "Something went wrong. Type *restart* 🙏"
  
  
-# ─── Flask Webhook ────────────────────────────────────────────
+# ─── Flask Routes ─────────────────────────────────────────────
 @app.route("/webhook", methods=["POST"])
 def webhook():
     incoming_msg = request.values.get("Body", "").strip()
     from_number = request.values.get("From", "")
     if not incoming_msg:
         return "OK"
-    reply_text = handle_message(from_number, incoming_msg)
+    reply = handle_message(from_number, incoming_msg)
     resp = MessagingResponse()
-    resp.message(reply_text)
+    resp.message(reply)
     return str(resp)
  
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ Sahayak Fever Bot Running | Mediokart | Buxar, Bihar"
+    return "✅ Sahayak Fever Bot Running | Mediokart | Buxar, Bihar 🇮🇳"
+ 
  
 if __name__ == "__main__":
     print("✅ Sahayak WhatsApp Fever Bot chal raha hai...")
     print("📍 Mediokart | Buxar, Bihar")
+    print("🌐 Webhook: /webhook")
     app.run(debug=False, host="0.0.0.0",
             port=int(os.environ.get("PORT", 5000)))
  
